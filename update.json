@@ -1,5 +1,6 @@
 {
   "surum": "1.0.0",
   "link": "https://github.com/MehmetAykurt/getem/releases/download/v1.0.0/Getem-v1.0.0.nvda-addon",
-  "aciklama": "Yeni eklenti için güncellemeler aktif."
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "aciklama": "GETEM E-Kütüphane eklentisi için güncelleme denetimi etkinleştirildi."
 }
