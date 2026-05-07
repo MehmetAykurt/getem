@@ -913,7 +913,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
     def menu_yardim_ac(self, _event):
         kok_klasor = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        yardim_yolu = os.path.join(kok_klasor, "doc/tr", "readme.html")
+        yardim_yolu = os.path.join(kok_klasor, "doc", "tr", "readme.html")
 
         if not os.path.exists(yardim_yolu):
             ui.message("Yardım dosyası bulunamadı.")
