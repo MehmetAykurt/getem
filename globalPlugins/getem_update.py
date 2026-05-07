@@ -1,29 +1,33 @@
 # -*- coding: utf-8 -*-
 # NVDA bağımsız güncelleme motoru.
-# Resmî kanal doğrulaması yapar ve yalnızca doğrulanan GitHub deposundan güncelleme alır.
+# Telif Hakkı (C) 2026 Mehmet Aykurt
+# URL: https://github.com/MehmetAykurt/getem
 
 import hashlib
 import json
 import os
+import ssl
 import tempfile
 import threading
 import urllib.parse
 import urllib.request
 
+import addonHandler
 import globalPluginHandler
 import gui
+import logHandler
 import ui
 import wx
 
-
-VARSAYILAN_MEVCUT_SURUM = "1.0.0"
-VARSAYILAN_EKLENTI_ADI = "NVDA Eklentisi"
 
 KONTROL_GECIKMESI_MS = 7000
 BAGLANTI_ZAMAN_ASIMI = 10
 INDIRME_ZAMAN_ASIMI = 30
 AZAMI_JSON_BOYUTU = 1024 * 1024
 AZAMI_EKLENTI_BOYUTU = 150 * 1024 * 1024
+
+GUNLUK_AKTIF = False
+GUNLUK_ON_EKI = "NVDA güncelleme motoru: "
 
 KULLANICI_ARACISI = (
     "Mozilla/5.0 "
@@ -34,6 +38,34 @@ KULLANICI_ARACISI = (
 _guncelleme_penceresi_acik = False
 _indirme_basladi = False
 _durum_kilidi = threading.RLock()
+_manifest_yolu_onbellek = None
+_manifest_yolu_arandi = False
+
+
+def gunluk_yaz(metin):
+    if not GUNLUK_AKTIF:
+        return
+
+    try:
+        logHandler.log.info(GUNLUK_ON_EKI + str(metin))
+    except Exception:
+        pass
+
+
+def ssl_baglami_olustur():
+    try:
+        baglam = ssl.create_default_context()
+
+        if hasattr(ssl, "VERIFY_X509_STRICT"):
+            try:
+                baglam.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            except Exception:
+                pass
+
+        return baglam
+
+    except Exception:
+        return None
 
 
 def metin_uret(kodlar):
@@ -84,10 +116,65 @@ def surum_parcala(surum):
         return None
 
 
-def eklenti_kok_klasorunu_al():
+def manifest_yolunu_bul():
+    global _manifest_yolu_onbellek, _manifest_yolu_arandi
+
+    if _manifest_yolu_arandi:
+        return _manifest_yolu_onbellek or ""
+
+    _manifest_yolu_arandi = True
+
     try:
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    except Exception:
+        dosya_yolu = os.path.abspath(__file__)
+        global_plugins_klasoru = os.path.dirname(dosya_yolu)
+        eklenti_kok_klasoru = os.path.dirname(global_plugins_klasoru)
+
+        adaylar = [
+            os.path.join(eklenti_kok_klasoru, "manifest.ini"),
+            os.path.join(global_plugins_klasoru, "manifest.ini"),
+        ]
+
+        try:
+            kod_eklentisi = addonHandler.getCodeAddon()
+
+            if kod_eklentisi and getattr(kod_eklentisi, "path", None):
+                adaylar.append(os.path.join(kod_eklentisi.path, "manifest.ini"))
+        except Exception:
+            pass
+
+        klasor = global_plugins_klasoru
+
+        for _sayac in range(5):
+            adaylar.append(os.path.join(klasor, "manifest.ini"))
+            ust_klasor = os.path.dirname(klasor)
+
+            if ust_klasor == klasor:
+                break
+
+            klasor = ust_klasor
+
+        gorulenler = set()
+
+        for aday in adaylar:
+            aday = os.path.abspath(aday)
+
+            if aday in gorulenler:
+                continue
+
+            gorulenler.add(aday)
+
+            if os.path.isfile(aday):
+                _manifest_yolu_onbellek = aday
+                gunluk_yaz("manifest bulundu: " + aday)
+                return aday
+
+        _manifest_yolu_onbellek = ""
+        gunluk_yaz("manifest.ini bulunamadı.")
+        return ""
+
+    except Exception as hata:
+        _manifest_yolu_onbellek = ""
+        gunluk_yaz("manifest yolu aranırken hata: " + repr(hata))
         return ""
 
 
@@ -102,9 +189,9 @@ def tirnaklari_temizle(deger):
 
 def manifest_alani_oku(alan_adi):
     try:
-        manifest_yolu = os.path.join(eklenti_kok_klasorunu_al(), "manifest.ini")
+        manifest_yolu = manifest_yolunu_bul()
 
-        if not os.path.isfile(manifest_yolu):
+        if not manifest_yolu:
             return ""
 
         aranan = str(alan_adi).strip().lower()
@@ -126,7 +213,8 @@ def manifest_alani_oku(alan_adi):
 
         return ""
 
-    except Exception:
+    except Exception as hata:
+        gunluk_yaz("manifest alanı okunamadı: " + repr(hata))
         return ""
 
 
@@ -136,7 +224,7 @@ def mevcut_surumu_al():
     if surum_parcala(manifest_surumu):
         return manifest_surumu
 
-    return VARSAYILAN_MEVCUT_SURUM
+    return ""
 
 
 def eklenti_gorunen_adini_al():
@@ -150,7 +238,7 @@ def eklenti_gorunen_adini_al():
     if name:
         return name
 
-    return VARSAYILAN_EKLENTI_ADI
+    return "Güncelleme"
 
 
 def github_depo_bilgisi_al():
@@ -185,7 +273,8 @@ def github_depo_bilgisi_al():
             "depo_kucuk": depo_adi.lower(),
         }
 
-    except Exception:
+    except Exception as hata:
+        gunluk_yaz("GitHub depo bilgisi alınamadı: " + repr(hata))
         return None
 
 
@@ -246,11 +335,11 @@ def resmi_kanal_bilgilerini_al():
         depo_bilgisi["indirme_yolu_on_eki"] = indirme_yolu_on_eki
         return depo_bilgisi
 
-    except Exception:
+    except Exception as hata:
+        gunluk_yaz("resmî kanal bilgileri alınamadı: " + repr(hata))
         return None
 
 
-MEVCUT_SURUM = mevcut_surumu_al()
 EKLENTI_ADI = eklenti_gorunen_adini_al()
 
 
@@ -329,7 +418,11 @@ def json_oku(depo_bilgisi):
             headers={"User-Agent": KULLANICI_ARACISI},
         )
 
-        with urllib.request.urlopen(istek, timeout=BAGLANTI_ZAMAN_ASIMI) as yanit:
+        with urllib.request.urlopen(
+            istek,
+            timeout=BAGLANTI_ZAMAN_ASIMI,
+            context=ssl_baglami_olustur(),
+        ) as yanit:
             ham_veri = yanit.read(AZAMI_JSON_BOYUTU + 1)
 
         if len(ham_veri) > AZAMI_JSON_BOYUTU:
@@ -342,7 +435,8 @@ def json_oku(depo_bilgisi):
 
         return veri
 
-    except Exception:
+    except Exception as hata:
+        gunluk_yaz("update.json okunamadı: " + repr(hata))
         return None
 
 
@@ -401,7 +495,11 @@ def eklenti_dosyasini_indir(indirme_linki, yeni_surum, beklenen_sha256, depo_bil
         sha256 = hashlib.sha256()
         indirilen_boyut = 0
 
-        with urllib.request.urlopen(istek, timeout=INDIRME_ZAMAN_ASIMI) as yanit:
+        with urllib.request.urlopen(
+            istek,
+            timeout=INDIRME_ZAMAN_ASIMI,
+            context=ssl_baglami_olustur(),
+        ) as yanit:
             son_adres = yanit.geturl()
 
             if son_adres and not github_yonlendirme_guvenli_mi(son_adres):
@@ -444,7 +542,8 @@ def eklenti_dosyasini_indir(indirme_linki, yeni_surum, beklenen_sha256, depo_bil
         gecici_dosya = None
         return hedef_dosya
 
-    except Exception:
+    except Exception as hata:
+        gunluk_yaz("güncelleme dosyası indirilemedi: " + repr(hata))
         return None
 
     finally:
@@ -551,9 +650,16 @@ def guncelleme_penceresi_goster(yeni_surum, indirme_linki, aciklama, beklenen_sh
 
 def guncelleme_kontrol_et():
     try:
+        mevcut_surum = mevcut_surumu_al()
+
+        if not surum_parcala(mevcut_surum):
+            gunluk_yaz("kurulu sürüm geçerli okunamadı; denetim durduruldu.")
+            return
+
         depo_bilgisi = resmi_kanal_bilgilerini_al()
 
         if not depo_bilgisi:
+            gunluk_yaz("resmî kanal doğrulanmadı; denetim durduruldu.")
             return
 
         veri = json_oku(depo_bilgisi)
@@ -575,7 +681,7 @@ def guncelleme_kontrol_et():
         if not sha256_gecerli_mi(beklenen_sha256):
             return
 
-        if not sunucu_surum_daha_yeni_mi(sunucu_surum, MEVCUT_SURUM):
+        if not sunucu_surum_daha_yeni_mi(sunucu_surum, mevcut_surum):
             return
 
         wx.CallAfter(
@@ -587,8 +693,8 @@ def guncelleme_kontrol_et():
             depo_bilgisi,
         )
 
-    except Exception:
-        pass
+    except Exception as hata:
+        gunluk_yaz("beklenmeyen denetim hatası: " + repr(hata))
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):

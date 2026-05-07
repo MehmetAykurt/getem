@@ -1,6 +1,6 @@
 {
   "surum": "1.0.0",
   "link": "https://github.com/MehmetAykurt/getem/releases/download/v1.0.0/Getem-E-Kutuphane-v1.0.0.nvda-addon",
-  "sha256": "c8e59575e69c80c31da0e545c174f02d6cc78d88d5826d469acd810713f3f09c",
-  "aciklama": "GETEM E-Kütüphane eklentisi için güncelleme denetimi etkinleştirildi."
+  "sha256": "f471b5ad639663ad0e103b12aaa49d0026c7aed0cbbe218fa2a219fd6faad5f8",
+  "aciklama": "GETEM E-Kütüphane."
 }
